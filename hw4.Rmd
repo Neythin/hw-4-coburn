@@ -1,0 +1,149 @@
+---
+title: "hw4"
+author: "Nathan De Los Santos"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r, message=FALSE}
+library(tidymodels)
+library(ISLR) # For the Smarket data set
+library(ISLR2) # For the Bikeshare data set
+library(discrim)
+library(poissonreg)
+library(corrr)
+library(klaR) # for naive bayes
+tidymodels_prefer()
+titanic_data <- read.csv('data/titanic.csv')
+```
+
+
+```{r}
+set.seed(222)
+titanic_data$pclass <- factor(titanic_data$pclass)
+titanic_data$survived <- factor(titanic_data$survived, levels = c("Yes", "No"))
+```
+
+## Question 1
+
+```{r}
+# Splitting the data
+titanic_split <- initial_split(titanic_data, prop = 0.7, strata = survived)
+titanic_train <- training(titanic_split)
+titanic_test <- testing(titanic_split)
+view(titanic_train)
+```
+Total Observations: 891
+Training Set: 623 (891 * 0.7 = 623.7)
+Testing Set: 268 (891 * 0.3 = 267.3)
+
+```{r}
+# Recipe
+titanic_recipe <- recipe(survived ~ pclass + sex + age + sib_sp + parch + fare, data = titanic_train) %>% 
+  step_impute_linear(age) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_interact(terms = ~ starts_with("sex"):fare) %>%
+  step_interact(terms = ~ age:fare)
+```
+
+## Question 2
+
+```{r}
+# Folded data
+titanic_fold <- vfold_cv(titanic_train, strata = survived, v = 10)
+```
+
+## Question 3
+
+Essentially, a k-fold (v-fold) cross validation is splitting a given data set into k amounts of groups and using these groups to estimate the performance of the models we are using. Moreover, using a large amount of folds would result in a smaller bias; and using a small amount of folds would give us a result with a smaller variance. By using this method, we are ensuring the model's performance is consistent/reliable and ensuring, overall, that the model is valid. If we were to resample the entire data set, that method is called "Validation Set Approach". 
+
+## Question 4
+
+```{r}
+# Logistic Regression Model
+titanic_reg <- logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+titanic_log_wkflow <- workflow() %>% 
+  add_model(titanic_reg) %>% 
+  add_recipe(titanic_recipe)
+
+
+
+# LDA Model
+titanic_lda <- discrim_linear() %>% 
+  set_mode("classification") %>% 
+  set_engine("MASS") 
+titanic_lda_wkflow <- workflow() %>% 
+  add_model(titanic_lda) %>% 
+  add_recipe(titanic_recipe)
+
+
+
+# QDA Model
+titanic_qda <- discrim_quad() %>% 
+  set_mode("classification") %>% 
+  set_engine("MASS") 
+titanic_qda_wkflow <- workflow() %>% 
+  add_model(titanic_qda) %>% 
+  add_recipe(titanic_recipe)
+```
+Since we are doing a 10-fold cross validation, and we have 3 models, in total we are fitting 30 models to the data.
+
+## Question 5
+
+```{r, eval=FALSE}
+# Logistic Regression Results
+load(file = "log_fold.rda")
+
+# LDA Model Results
+load(file = "lda_fold.rda")
+
+# QDA Model Results
+load(file = "qda_fold.rda")
+```
+
+## Question 6
+
+```{r}
+log_metrics <- collect_metrics(log_fold)
+# Mean(accuracy): 0.8090009
+# Std Error(accuracy): 0.01576537
+# Mean(roc_auc): 0.8529594
+# Std Error(roc_auc): 0.02059962
+
+lda_metrics <- collect_metrics(lda_fold)
+# Mean(accuracy): 0.7881082
+# Std Error(accuracy): 0.01491460
+# Mean(roc_auc): 0.8548991
+# Std Error(roc_auc): 0.01887671
+
+qda_metrics <- collect_metrics(qda_fold)
+# Mean(accuracy): 0.7657853
+# Std Error(accuracy): 0.01259397	
+# Mean(roc_auc): 0.8520179
+# Std Error(roc_auc): 0.01804941
+```
+Based off the results, we see that logistic regression performed the best out of the three models. This may be due to the fact that the data set itself is pretty easy to predict -- especially since the variable were are trying to predict (survived) is a binary variables (Yes or no).
+
+## Question 7
+
+```{r}
+train_fit <- fit(titanic_log_wkflow, titanic_train)
+```
+
+## Question 8
+
+```{r}
+test_pred <- predict(train_fit, new_data = titanic_test)
+
+bind_cols(log_metrics, lda_metrics, qda_metrics)
+
+augment(train_fit, new_data = titanic_test) %>% 
+  accuracy(truth = survived, estimate = .pred_class)
+```
